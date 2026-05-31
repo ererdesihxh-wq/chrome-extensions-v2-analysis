@@ -406,7 +406,7 @@ async function loadData() {
   const progressText = document.querySelector('.progress-text');
   const loadSize = document.getElementById('loadSize');
 
-  // Try IndexedDB cache first — near-instant on repeat visits
+  // Try IndexedDB cache first
   try {
     const cached = await dbGet('exts');
     if (cached && cached.length > 0) {
@@ -414,46 +414,40 @@ async function loadData() {
       progressText.textContent = '☑ 从缓存加载完成';
       progressBar.style.width = '60%';
       finishLoad();
-      // Silently refresh in background
       fetchFreshData();
       return;
     }
-  } catch(e) { /* cache unavailable, fall through to download */ }
+  } catch(e) {}
 
-  // Full download with live progress
+  // Download full file (use simple fetch, NOT ReadableStream — more reliable on mobile)
   try {
     progressText.textContent = '正在下载数据文件...';
-    loadSize.textContent = '首次加载约需 5-15 秒，请耐心等待';
+    loadSize.textContent = '0 秒';
     progressBar.classList.add('active');
+
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      const sec = ((Date.now() - startTime) / 1000).toFixed(0);
+      loadSize.textContent = sec + ' 秒 (约 20 MB)';
+    }, 1000);
+
     const resp = await fetch('extensions_data.json');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const reader = resp.body.getReader();
-    const contentLength = +resp.headers.get('Content-Length') || 20000000;
-    let received = 0;
-    const chunks = [];
+    const text = await resp.text();
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      received += value.length;
-      const pct = Math.min(30, (received / contentLength) * 30);
-      progressBar.style.width = pct + '%';
-      loadSize.textContent = (received / 1048576).toFixed(1) + ' MB / ' + (contentLength / 1048576).toFixed(1) + ' MB';
-    }
-
+    clearInterval(timer);
     progressBar.classList.remove('active');
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    loadSize.textContent = (text.length / 1048576).toFixed(1) + ' MB (' + elapsed + ' 秒)';
+
     progressText.textContent = '正在解析数据...';
     progressBar.style.width = '40%';
 
-    const allChunks = new Uint8Array(received);
-    let pos = 0;
-    for (const chunk of chunks) { allChunks.set(chunk, pos); pos += chunk.length; }
-    const text = new TextDecoder('utf-8').decode(allChunks);
-    progressBar.style.width = '60%';
-
     const data = JSON.parse(text);
     allExts = data.exts;
+
+    progressBar.style.width = '60%';
 
     // Cache for next time
     dbSet('exts', allExts).catch(() => {});

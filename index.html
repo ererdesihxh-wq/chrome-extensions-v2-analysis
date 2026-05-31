@@ -411,6 +411,15 @@ async function loadData() {
     const cached = await dbGet('exts');
     if (cached && cached.length > 0) {
       allExts = cached;
+      // Also restore cached translations
+      const tn = await dbGet('nameTr').catch(() => null);
+      const tt = await dbGet('tagTr').catch(() => null);
+      if (tn) window.nameTranslations = tn;
+      if (tt) window.tagTranslations = tt;
+      // If no cached translations, fetch them (small files)
+      if (!tn || !tt) await loadTranslations();
+      if (!window.tagTranslations) window.tagTranslations = {};
+      if (!window.nameTranslations) window.nameTranslations = {};
       progressText.textContent = '☑ 从缓存加载完成';
       progressBar.style.width = '60%';
       finishLoad();
@@ -464,6 +473,9 @@ async function loadData() {
     dbSet('exts', allExts).catch(() => {});
 
     await loadTranslations();
+    // Cache translations too
+    if (window.nameTranslations) dbSet('nameTr', window.nameTranslations).catch(() => {});
+    if (window.tagTranslations) dbSet('tagTr', window.tagTranslations).catch(() => {});
     finishLoad();
   } catch (e) {
     document.getElementById('loading').innerHTML = `
@@ -488,11 +500,13 @@ async function loadData() {
 
 async function loadTranslations() {
   async function fetchJsonMaybeGz(url) {
-    const gz = await fetch(url+'.gz').catch(() => null);
-    if (gz && gz.ok && typeof DecompressionStream !== 'undefined') {
-      const compressed = await gz.blob();
-      return new Response(compressed.stream().pipeThrough(new DecompressionStream('gzip'))).json();
-    }
+    try {
+      const gz = await fetch(url+'.gz');
+      if (gz.ok && typeof DecompressionStream !== 'undefined') {
+        const compressed = await gz.blob();
+        return await new Response(compressed.stream().pipeThrough(new DecompressionStream('gzip'))).json();
+      }
+    } catch(e) {}
     const resp = await fetch(url);
     return resp.ok ? resp.json() : null;
   }
@@ -518,6 +532,8 @@ async function fetchFreshData() {
       allExts = data.exts;
       dbSet('exts', allExts).catch(() => {});
       await loadTranslations();
+      if (window.nameTranslations) dbSet('nameTr', window.nameTranslations).catch(() => {});
+      if (window.tagTranslations) dbSet('tagTr', window.tagTranslations).catch(() => {});
       computeStats();
       populateFilters();
       applyFilters();

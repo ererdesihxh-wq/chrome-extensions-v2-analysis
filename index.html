@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chrome Extensions Manifest V2 数据分析</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+
+/* Layout */
+.header { background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-bottom: 1px solid #334155; padding: 20px 24px; position: sticky; top: 0; z-index: 100; }
+.header h1 { font-size: 22px; font-weight: 700; color: #f8fafc; }
+.header p { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+.header .subtitle span { color: #60a5fa; font-weight: 600; }
+
+.stats-bar { display: flex; gap: 12px; padding: 16px 24px; flex-wrap: wrap; background: #1e293b; border-bottom: 1px solid #334155; }
+.stat-card { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px 18px; min-width: 140px; flex: 1; max-width: 200px; }
+.stat-card .num { font-size: 22px; font-weight: 700; color: #f8fafc; }
+.stat-card .label { font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+.main { display: flex; gap: 0; min-height: calc(100vh - 180px); }
+.sidebar { width: 280px; min-width: 280px; background: #1e293b; border-right: 1px solid #334155; padding: 16px; overflow-y: auto; max-height: calc(100vh - 180px); }
+.content { flex: 1; padding: 16px 20px; overflow: auto; }
+
+.filter-group { margin-bottom: 16px; }
+.filter-group label { display: block; font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+.filter-group select, .filter-group input { width: 100%; padding: 8px 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; font-size: 13px; }
+.filter-group select:focus, .filter-group input:focus { outline: none; border-color: #60a5fa; }
+.filter-group input[type="text"] { width: 100%; }
+.filter-group input[type="range"] { width: calc(100% - 50px); display: inline-block; vertical-align: middle; }
+.range-val { display: inline-block; width: 46px; text-align: right; font-size: 12px; color: #60a5fa; }
+.filter-group .checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #cbd5e1; cursor: pointer; }
+.filter-group input[type="checkbox"] { width: auto; }
+
+.btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; }
+.btn-primary { background: #2563eb; color: #fff; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-secondary { background: #334155; color: #e2e8f0; }
+.btn-secondary:hover { background: #475569; }
+.btn-danger { background: #dc2626; color: #fff; }
+.btn-group { display: flex; gap: 8px; margin-bottom: 12px; }
+
+/* Search */
+.search-box { margin-bottom: 16px; }
+.search-box input { width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; font-size: 14px; }
+.search-box input:focus { outline: none; border-color: #60a5fa; }
+.search-box input::placeholder { color: #64748b; }
+
+/* Table */
+.table-container { overflow-x: auto; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.toolbar .info { font-size: 13px; color: #94a3b8; }
+.toolbar .info strong { color: #f8fafc; }
+.toolbar-right { display: flex; gap: 8px; align-items: center; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead { position: sticky; top: 0; z-index: 10; }
+th { background: #1e293b; padding: 10px 12px; text-align: left; font-weight: 600; color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #334155; cursor: pointer; user-select: none; white-space: nowrap; }
+th:hover { color: #60a5fa; }
+th .sort-icon { margin-left: 4px; opacity: 0.4; }
+th.active .sort-icon { opacity: 1; color: #60a5fa; }
+td { padding: 8px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle; }
+tr:hover td { background: rgba(96, 165, 250, 0.05); }
+tr.highlight td { background: rgba(220, 38, 38, 0.08); }
+.rating { display: inline-flex; align-items: center; gap: 4px; }
+.rating .star { color: #facc15; font-size: 12px; }
+.rating-good { color: #4ade80; }
+.rating-ok { color: #facc15; }
+.rating-bad { color: #f87171; }
+.installs { font-weight: 600; color: #f8fafc; }
+.dev-type-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+.dev-company { background: #1e3a5f; color: #60a5fa; }
+.dev-individual { background: #3b1f3b; color: #c084fc; }
+.dev-unknown { background: #334155; color: #94a3b8; }
+.cn-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; background: #3b1f1f; color: #fca5a5; }
+.cat-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: #1e293b; color: #94a3b8; }
+.ext-name { color: #f8fafc; font-weight: 500; text-decoration: none; }
+.ext-name:hover { color: #60a5fa; }
+.ext-name .tagline { display: block; font-weight: 400; font-size: 11px; color: #64748b; margin-top: 2px; }
+.country-badge { color: #94a3b8; font-size: 11px; }
+
+/* Insights */
+.insights-panel { margin-bottom: 20px; }
+.insights-panel h2 { font-size: 16px; font-weight: 600; color: #f8fafc; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #334155; }
+.insight-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.insight-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; }
+.insight-card h3 { font-size: 13px; font-weight: 600; color: #60a5fa; margin-bottom: 8px; }
+.insight-card .item { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; color: #cbd5e1; }
+.insight-card .item .val { color: #f8fafc; font-weight: 500; }
+.insight-card .bar-bg { height: 6px; background: #0f172a; border-radius: 3px; margin-top: 4px; overflow: hidden; }
+.insight-card .bar { height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa); border-radius: 3px; transition: width 0.3s; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid #334155; }
+.tab { padding: 8px 16px; cursor: pointer; font-size: 13px; color: #94a3b8; border-bottom: 2px solid transparent; transition: all 0.2s; }
+.tab:hover { color: #e2e8f0; }
+.tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+
+/* Loading */
+#loading { display: flex; align-items: center; justify-content: center; height: 400px; flex-direction: column; gap: 16px; }
+.spinner { width: 40px; height: 40px; border: 3px solid #334155; border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress-text { font-size: 14px; color: #94a3b8; }
+.progress-bar { width: 300px; height: 4px; background: #334155; border-radius: 2px; overflow: hidden; }
+.progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #2563eb, #60a5fa); transition: width 0.3s; }
+
+/* Pagination / virtual scroll */
+.vscroll-wrap { height: calc(100vh - 340px); overflow-y: auto; border: 1px solid #334155; border-radius: 8px; }
+
+/* Charts section */
+.chart-container { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.chart-container h3 { font-size: 14px; color: #f8fafc; margin-bottom: 12px; }
+.chart-bar-row { display: flex; align-items: center; margin-bottom: 4px; font-size: 12px; }
+.chart-bar-label { width: 160px; text-align: right; padding-right: 10px; color: #94a3b8; flex-shrink: 0; }
+.chart-bar-track { flex: 1; height: 22px; background: #0f172a; border-radius: 4px; overflow: hidden; position: relative; }
+.chart-bar-fill { height: 100%; background: linear-gradient(90deg, #2563eb, #60a5fa); border-radius: 4px; display: flex; align-items: center; padding-left: 8px; color: #fff; font-size: 11px; font-weight: 500; white-space: nowrap; min-width: fit-content; }
+.chart-bar-count { width: 80px; padding-left: 10px; color: #f8fafc; font-weight: 500; }
+
+@media (max-width: 900px) {
+  .sidebar { width: 100%; min-width: auto; max-height: none; border-right: none; border-bottom: 1px solid #334155; }
+  .main { flex-direction: column; }
+  .stat-card { min-width: 100px; max-width: none; }
+  .chart-bar-label { width: 100px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Chrome Extensions Manifest V2 分析面板</h1>
+  <p class="subtitle">共 <span id="totalCount">0</span> 款扩展 · 数据来源: Chrome Web Store · 最后更新: 分析日</p>
+</div>
+
+<div class="stats-bar" id="statsBar">
+  <div class="stat-card"><div class="num" id="statTotal">-</div><div class="label">扩展总数</div></div>
+  <div class="stat-card"><div class="num" id="statInstalls">-</div><div class="label">总安装量</div></div>
+  <div class="stat-card"><div class="num" id="statAvgRating">-</div><div class="label">平均评分</div></div>
+  <div class="stat-card"><div class="num" id="statCompanies">-</div><div class="label">公司开发者</div></div>
+  <div class="stat-card"><div class="num" id="statChinese">-</div><div class="label">中文扩展</div></div>
+  <div class="stat-card"><div class="num" id="statBadHigh">-</div><div class="label">高安装低评分</div></div>
+</div>
+
+<div class="main">
+  <div class="sidebar">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="搜索名称、描述、开发者..." oninput="applyFilters()">
+    </div>
+
+    <div class="filter-group">
+      <label>功能分类</label>
+      <select id="filterCategory" onchange="applyFilters()">
+        <option value="">全部分类</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label>安装量范围</label>
+      <select id="filterInstalls" onchange="applyFilters()">
+        <option value="">全部安装量</option>
+        <option value="0-99">100以下</option>
+        <option value="100-999">100 - 1K</option>
+        <option value="1000-9999">1K - 10K</option>
+        <option value="10000-99999">10K - 100K</option>
+        <option value="100000-999999">100K - 1M</option>
+        <option value="1000000-9999999">1M - 10M</option>
+        <option value="10000000-">10M 以上</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label>更新时间</label>
+      <select id="filterYear" onchange="applyFilters()">
+        <option value="">全部年份</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label>开发者类型</label>
+      <select id="filterDevType" onchange="applyFilters()">
+        <option value="">全部</option>
+        <option value="1">个人开发者</option>
+        <option value="2">公司/组织</option>
+        <option value="0">未知</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label>国家/地区</label>
+      <select id="filterCountry" onchange="applyFilters()">
+        <option value="">全部</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label>评分范围</label>
+      <select id="filterRating" onchange="applyFilters()">
+        <option value="">全部评分</option>
+        <option value="4.5-5">高评分 (4.5+)</option>
+        <option value="4-4.4">中高评分 (4.0-4.4)</option>
+        <option value="3-3.9">中评分 (3.0-3.9)</option>
+        <option value="2-2.9">低评分 (2.0-2.9)</option>
+        <option value="0-1.9">极低评分 (0-1.9)</option>
+      </select>
+    </div>
+
+    <div class="filter-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="filterChinese" onchange="applyFilters()">
+        仅显示中文描述插件
+      </label>
+    </div>
+
+    <div class="filter-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="filterBadHigh" onchange="applyFilters()">
+        高安装量 + 低评分 (差评多)
+      </label>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="resetFilters()">重置筛选</button>
+      <button class="btn btn-primary" onclick="exportCSV()">导出CSV</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div id="loading">
+      <div class="spinner"></div>
+      <div class="progress-text">正在加载数据...</div>
+      <div class="progress-bar"><div class="progress-fill" id="loadProgress"></div></div>
+    </div>
+
+    <div id="mainContent" style="display:none;">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('browse',this)">数据浏览</div>
+        <div class="tab" onclick="switchTab('insights',this)">数据分析</div>
+        <div class="tab" onclick="switchTab('opportunities',this)">机会发现</div>
+      </div>
+
+      <div id="tabBrowse">
+        <div class="toolbar">
+          <div class="info">显示 <strong id="filteredCount">0</strong> / <span id="totalDisplay">0</span> 个扩展</div>
+          <div class="toolbar-right">
+            <select id="sortSelect" onchange="applyFilters()" style="padding:6px 10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px;">
+              <option value="3-desc">安装量 ↓</option>
+              <option value="3-asc">安装量 ↑</option>
+              <option value="2-desc">评分 ↓</option>
+              <option value="2-asc">评分 ↑</option>
+              <option value="6-desc">更新时间 ↓</option>
+              <option value="6-asc">更新时间 ↑</option>
+              <option value="0-asc">名称 A-Z</option>
+              <option value="0-desc">名称 Z-A</option>
+            </select>
+          </div>
+        </div>
+        <div class="vscroll-wrap" id="scrollWrap">
+          <table>
+            <thead>
+              <tr>
+                <th onclick="sortBy(0)">名称</th>
+                <th onclick="sortBy(2)" class="active">评分</th>
+                <th onclick="sortBy(3)" class="active">安装量</th>
+                <th onclick="sortBy(6)">更新时间</th>
+                <th>开发者</th>
+                <th>类型</th>
+                <th>分类</th>
+                <th>国家</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tabInsights" style="display:none;">
+        <div class="insights-panel" id="insightsContent"></div>
+      </div>
+
+      <div id="tabOpportunities" style="display:none;">
+        <div class="insights-panel" id="opportunitiesContent"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Data
+let allExts = [];
+let filteredExts = [];
+let currentSort = { col: 3, dir: 'desc' };
+const ITEMS_PER_PAGE = 200;
+let currentPage = 0;
+let renderedItems = 0;
+
+// Column indices
+const COL = { name:0, tagline:1, rating:2, installs:3, dev:4, devType:5, year:6, cat:7, cn:8, country:9, url:10, ver:11 };
+
+// Load data
+async function loadData() {
+  const progressBar = document.getElementById('loadProgress');
+  const progressText = document.querySelector('.progress-text');
+
+  try {
+    progressText.textContent = '正在下载数据文件...';
+    const resp = await fetch('extensions_data.json');
+    const reader = resp.body.getReader();
+    const contentLength = +resp.headers.get('Content-Length') || 20000000;
+    let received = 0;
+    const chunks = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      progressBar.style.width = Math.min(30, (received / contentLength) * 30) + '%';
+    }
+
+    progressText.textContent = '正在解析数据...';
+    progressBar.style.width = '40%';
+
+    const allChunks = new Uint8Array(received);
+    let pos = 0;
+    for (const chunk of chunks) { allChunks.set(chunk, pos); pos += chunk.length; }
+
+    const decoder = new TextDecoder('utf-8');
+    const text = decoder.decode(allChunks);
+
+    progressBar.style.width = '60%';
+
+    const data = JSON.parse(text);
+    allExts = data.exts;
+
+    progressBar.style.width = '80%';
+    progressText.textContent = '正在处理统计...';
+
+    // Restore stats
+    document.getElementById('totalCount').textContent = data.total;
+    document.getElementById('statTotal').textContent = data.total.toLocaleString();
+
+    // Precompute stats
+    computeStats();
+
+    // Populate filter options
+    populateFilters();
+
+    // Apply filters and render
+    applyFilters();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+  } catch (e) {
+    progressText.textContent = '加载失败: ' + e.message;
+    console.error(e);
+  }
+}
+
+function computeStats() {
+  let totalInstalls = 0;
+  let totalRating = 0;
+  let ratingCount = 0;
+  let companies = 0;
+  let chinese = 0;
+  let badHigh = 0;
+
+  for (const e of allExts) {
+    totalInstalls += e[COL.installs];
+    if (e[COL.rating] > 0) { totalRating += e[COL.rating]; ratingCount++; }
+    if (e[COL.devType] === 2) companies++;
+    if (e[COL.cn] === 1) chinese++;
+    if (e[COL.installs] >= 100000 && e[COL.rating] > 0 && e[COL.rating] < 3.0) badHigh++;
+  }
+
+  document.getElementById('statInstalls').textContent = formatNum(totalInstalls);
+  document.getElementById('statAvgRating').textContent = ratingCount ? (totalRating / ratingCount).toFixed(2) : '-';
+  document.getElementById('statCompanies').textContent = companies.toLocaleString();
+  document.getElementById('statChinese').textContent = chinese.toLocaleString();
+  document.getElementById('statBadHigh').textContent = badHigh.toLocaleString();
+}
+
+function populateFilters() {
+  const cats = new Set();
+  const years = new Set();
+  const countries = new Set();
+
+  for (const e of allExts) {
+    if (e[COL.cat]) cats.add(e[COL.cat]);
+    if (e[COL.year] > 0 && e[COL.year] <= 2026) years.add(e[COL.year]);
+    if (e[COL.country]) countries.add(e[COL.country]);
+  }
+
+  const catSel = document.getElementById('filterCategory');
+  for (const c of [...cats].sort()) {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    catSel.appendChild(opt);
+  }
+
+  const yearSel = document.getElementById('filterYear');
+  for (const y of [...years].sort((a,b) => b-a)) {
+    const opt = document.createElement('option');
+    opt.value = y; opt.textContent = y;
+    yearSel.appendChild(opt);
+  }
+
+  const countrySel = document.getElementById('filterCountry');
+  for (const c of [...countries].sort()) {
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    countrySel.appendChild(opt);
+  }
+}
+
+function applyFilters() {
+  const search = document.getElementById('searchInput').value.toLowerCase().trim();
+  const cat = document.getElementById('filterCategory').value;
+  const installRange = document.getElementById('filterInstalls').value;
+  const year = document.getElementById('filterYear').value;
+  const devType = document.getElementById('filterDevType').value;
+  const country = document.getElementById('filterCountry').value;
+  const ratingRange = document.getElementById('filterRating').value;
+  const chineseOnly = document.getElementById('filterChinese').checked;
+  const badHighOnly = document.getElementById('filterBadHigh').checked;
+
+  filteredExts = allExts.filter(e => {
+    if (search) {
+      const haystack = (e[COL.name] + ' ' + (e[COL.tagline]||'') + ' ' + (e[COL.dev]||'')).toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    if (cat && e[COL.cat] !== cat) return false;
+    if (year && e[COL.year] !== +year) return false;
+    if (devType !== '' && e[COL.devType] !== +devType) return false;
+    if (country && e[COL.country] !== country) return false;
+    if (chineseOnly && e[COL.cn] !== 1) return false;
+
+    if (installRange) {
+      const [min, max] = installRange.split('-');
+      const val = e[COL.installs];
+      if (min && val < +min) return false;
+      if (max && val > +max) return false;
+    }
+    if (ratingRange) {
+      const [rmin, rmax] = ratingRange.split('-');
+      const r = e[COL.rating];
+      if (r === 0) return false;
+      if (rmin && r < +rmin) return false;
+      if (rmax && r > +rmax) return false;
+    }
+    if (badHighOnly) {
+      if (e[COL.installs] < 100000 || e[COL.rating] === 0 || e[COL.rating] >= 3.0) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  const sortVal = document.getElementById('sortSelect').value;
+  const [col, dir] = sortVal.split('-');
+  const colIdx = +col;
+
+  filteredExts.sort((a, b) => {
+    let va = a[colIdx], vb = b[colIdx];
+    if (typeof va === 'string') {
+      va = va.toLowerCase();
+      vb = (vb || '').toLowerCase();
+    }
+    if (va === vb) return 0;
+    const cmp = va > vb ? 1 : -1;
+    return dir === 'desc' ? -cmp : cmp;
+  });
+
+  currentPage = 0;
+  renderedItems = 0;
+  document.getElementById('filteredCount').textContent = filteredExts.length;
+  document.getElementById('totalDisplay').textContent = allExts.length;
+
+  const wrap = document.getElementById('scrollWrap');
+  wrap.scrollTop = 0;
+  renderTable();
+}
+
+function renderTable() {
+  const tbody = document.getElementById('tableBody');
+  const wrap = document.getElementById('scrollWrap');
+  const totalHeight = filteredExts.length * 44;
+  const viewportHeight = wrap.clientHeight;
+  const scrollTop = wrap.scrollTop;
+
+  const startIdx = Math.max(0, Math.floor(scrollTop / 44) - 10);
+  const endIdx = Math.min(filteredExts.length, Math.ceil((scrollTop + viewportHeight) / 44) + 10);
+
+  let html = '';
+  for (let i = startIdx; i < endIdx; i++) {
+    const e = filteredExts[i];
+    const isBadHigh = e[COL.installs] >= 100000 && e[COL.rating] > 0 && e[COL.rating] < 3.0;
+
+    const ratingClass = e[COL.rating] >= 4 ? 'rating-good' : e[COL.rating] >= 3 ? 'rating-ok' : e[COL.rating] > 0 ? 'rating-bad' : '';
+    const devTypeClass = e[COL.devType] === 2 ? 'dev-company' : e[COL.devType] === 1 ? 'dev-individual' : 'dev-unknown';
+    const devTypeLabel = e[COL.devType] === 2 ? '公司' : e[COL.devType] === 1 ? '个人' : '未知';
+
+    let nameHtml = e[COL.name];
+    if (e[COL.url]) nameHtml = '<a class="ext-name" href="' + e[COL.url] + '" target="_blank">' + escHtml(e[COL.name]) + (e[COL.tagline] ? '<span class="tagline">' + escHtml(e[COL.tagline]) + '</span>' : '') + '</a>';
+    else nameHtml = '<span class="ext-name">' + escHtml(e[COL.name]) + (e[COL.tagline] ? '<span class="tagline">' + escHtml(e[COL.tagline]) + '</span>' : '') + '</span>';
+
+    const cnTag = e[COL.cn] === 1 ? ' <span class="cn-badge">中文</span>' : '';
+
+    html += '<tr' + (isBadHigh ? ' class="highlight"' : '') + '>' +
+      '<td>' + nameHtml + cnTag + '</td>' +
+      '<td><span class="rating ' + ratingClass + '"><span class="star">★</span> ' + (e[COL.rating] || '-') + '</span></td>' +
+      '<td><span class="installs">' + formatNum(e[COL.installs]) + '</span></td>' +
+      '<td>' + (e[COL.year] || '-') + '</td>' +
+      '<td>' + escHtml(e[COL.dev]) + '</td>' +
+      '<td><span class="dev-type-badge ' + devTypeClass + '">' + devTypeLabel + '</span></td>' +
+      '<td><span class="cat-badge">' + escHtml(e[COL.cat]) + '</span></td>' +
+      '<td class="country-badge">' + escHtml(e[COL.country] || '') + '</td>' +
+      '</tr>';
+  }
+
+  // Add spacer rows for virtual scroll
+  const topSpacer = startIdx * 44;
+  const bottomSpacer = (filteredExts.length - endIdx) * 44;
+
+  tbody.innerHTML = (topSpacer > 0 ? '<tr style="height:' + topSpacer + 'px"><td colspan="8"></td></tr>' : '') +
+    html +
+    (bottomSpacer > 0 ? '<tr style="height:' + bottomSpacer + 'px"><td colspan="8"></td></tr>' : '');
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function formatNum(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K';
+  return n.toLocaleString();
+}
+
+function sortBy(col) {
+  currentSort.col = col;
+  currentSort.dir = currentSort.dir === 'desc' ? 'asc' : 'desc';
+  const sel = document.getElementById('sortSelect');
+  for (const opt of sel.options) {
+    if (+opt.value.split('-')[0] === col) {
+      sel.value = col + '-' + currentSort.dir;
+      break;
+    }
+  }
+  applyFilters();
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('tabBrowse').style.display = name === 'browse' ? 'block' : 'none';
+  document.getElementById('tabInsights').style.display = name === 'insights' ? 'block' : 'none';
+  document.getElementById('tabOpportunities').style.display = name === 'opportunities' ? 'block' : 'none';
+
+  if (name === 'insights') renderInsights();
+  if (name === 'opportunities') renderOpportunities();
+}
+
+function resetFilters() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('filterCategory').value = '';
+  document.getElementById('filterInstalls').value = '';
+  document.getElementById('filterYear').value = '';
+  document.getElementById('filterDevType').value = '';
+  document.getElementById('filterCountry').value = '';
+  document.getElementById('filterRating').value = '';
+  document.getElementById('filterChinese').checked = false;
+  document.getElementById('filterBadHigh').checked = false;
+  document.getElementById('sortSelect').value = '3-desc';
+  applyFilters();
+}
+
+function exportCSV() {
+  const headers = ['Name', 'Rating', 'Installs', 'Developer', 'DevType', 'Year', 'Category', 'Country', 'URL'];
+  let csv = headers.join(',') + '\n';
+
+  for (const e of filteredExts) {
+    const row = [
+      '"' + (e[COL.name] || '').replace(/"/g, '""') + '"',
+      e[COL.rating] || 0,
+      e[COL.installs],
+      '"' + (e[COL.dev] || '').replace(/"/g, '""') + '"',
+      e[COL.devType] === 2 ? 'Company' : e[COL.devType] === 1 ? 'Individual' : 'Unknown',
+      e[COL.year] || 0,
+      '"' + e[COL.cat] + '"',
+      '"' + (e[COL.country] || '') + '"',
+      e[COL.url] || ''
+    ];
+    csv += row.join(',') + '\n';
+  }
+
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'chrome_extensions_v2_' + Date.now() + '.csv';
+  a.click();
+}
+
+function renderInsights() {
+  const el = document.getElementById('insightsContent');
+
+  // Category distribution
+  const catData = {};
+  let catTotal = 0;
+  for (const e of allExts) {
+    const c = e[COL.cat] || 'Other';
+    if (!catData[c]) catData[c] = { count: 0, installs: 0 };
+    catData[c].count++;
+    catData[c].installs += e[COL.installs];
+    catTotal++;
+  }
+
+  const catEntries = Object.entries(catData).sort((a, b) => b[1].count - a[1].count);
+  const maxCatCount = catEntries[0]?.[1]?.count || 1;
+
+  let catHtml = '<div class="chart-container"><h3>📊 扩展数量按功能分类</h3>';
+  for (const [cat, data] of catEntries) {
+    const pct = (data.count / catTotal * 100).toFixed(1);
+    catHtml += '<div class="chart-bar-row">' +
+      '<div class="chart-bar-label">' + escHtml(cat) + '</div>' +
+      '<div class="chart-bar-track"><div class="chart-bar-fill" style="width:' + (data.count / maxCatCount * 100) + '%">' + data.count.toLocaleString() + '</div></div>' +
+      '<div class="chart-bar-count">' + pct + '%</div></div>';
+  }
+  catHtml += '</div>';
+
+  // Installs by category
+  const maxCatInstalls = Math.max(...catEntries.map(([_, d]) => d.installs), 1);
+  let instHtml = '<div class="chart-container"><h3>💰 总安装量按功能分类</h3>';
+  const sortedByInst = [...catEntries].sort((a, b) => b[1].installs - a[1].installs);
+  for (const [cat, data] of sortedByInst) {
+    const pct = maxCatInstalls > 0 ? (data.installs / maxCatInstalls * 100) : 0;
+    instHtml += '<div class="chart-bar-row">' +
+      '<div class="chart-bar-label">' + escHtml(cat) + '</div>' +
+      '<div class="chart-bar-track"><div class="chart-bar-fill" style="width:' + pct + '%">' + formatNum(data.installs) + '</div></div>' +
+      '<div class="chart-bar-count">' + formatNum(data.installs) + '</div></div>';
+  }
+  instHtml += '</div>';
+
+  // Dev type distribution
+  let dCount = 0, dIndiv = 0, dComp = 0;
+  for (const e of allExts) {
+    if (e[COL.devType] === 2) dComp++;
+    else if (e[COL.devType] === 1) dIndiv++;
+    else dCount++;
+  }
+
+  const devHtml = '<div class="chart-container"><h3>🏢 开发者类型分布</h3>' +
+    '<div class="chart-bar-row"><div class="chart-bar-label">个人开发者</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:' + (dIndiv/allExts.length*100) + '%">' + dIndiv.toLocaleString() + '</div></div><div class="chart-bar-count">' + (dIndiv/allExts.length*100).toFixed(1) + '%</div></div>' +
+    '<div class="chart-bar-row"><div class="chart-bar-label">公司/组织</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:' + (dComp/allExts.length*100) + '%">' + dComp.toLocaleString() + '</div></div><div class="chart-bar-count">' + (dComp/allExts.length*100).toFixed(1) + '%</div></div>' +
+    '<div class="chart-bar-row"><div class="chart-bar-label">未知</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:' + (dCount/allExts.length*100) + '%">' + dCount.toLocaleString() + '</div></div><div class="chart-bar-count">' + (dCount/allExts.length*100).toFixed(1) + '%</div></div>' +
+    '</div>';
+
+  // Year distribution
+  const yearData = {};
+  for (const e of allExts) {
+    const y = e[COL.year] || 0;
+    if (y >= 2012 && y <= 2026) {
+      yearData[y] = (yearData[y] || 0) + 1;
+    }
+  }
+  const yearEntries = Object.entries(yearData).sort((a, b) => +a[0] - +b[0]);
+  const maxYear = Math.max(...yearEntries.map(([_, c]) => c), 1);
+  let yearHtml = '<div class="chart-container"><h3>📅 扩展更新时间分布</h3>';
+  for (const [y, c] of yearEntries) {
+    yearHtml += '<div class="chart-bar-row">' +
+      '<div class="chart-bar-label">' + y + '</div>' +
+      '<div class="chart-bar-track"><div class="chart-bar-fill" style="width:' + (c/maxYear*100) + '%">' + c.toLocaleString() + '</div></div>' +
+      '<div class="chart-bar-count">' + c.toLocaleString() + '</div></div>';
+  }
+  yearHtml += '</div>';
+
+  el.innerHTML = catHtml + instHtml + devHtml + yearHtml;
+}
+
+function renderOpportunities() {
+  const el = document.getElementById('opportunitiesContent');
+
+  // 1. High install low rating - replacement opportunities
+  let badHigh = allExts.filter(e => e[COL.installs] >= 100000 && e[COL.rating] > 0 && e[COL.rating] < 3.0);
+  badHigh.sort((a, b) => b[COL.installs] - a[COL.installs]);
+  badHigh = badHigh.slice(0, 30);
+
+  let html = '<div class="chart-container"><h3>⚠️ 高安装量 + 低评分扩展 (替代机会)</h3>' +
+    '<p style="font-size:13px;color:#94a3b8;margin-bottom:12px;">这些扩展安装量大但评分低，用户对它们不满意，是很好的替代品开发机会。</p>' +
+    '<table style="width:100%;font-size:12px;"><thead><tr><th>扩展名称</th><th>评分</th><th>安装量</th><th>开发者</th><th>分类</th></tr></thead><tbody>';
+  for (const e of badHigh) {
+    html += '<tr><td>' + escHtml(e[COL.name]) + '</td><td class="rating-bad">★ ' + e[COL.rating] + '</td><td>' + formatNum(e[COL.installs]) + '</td><td>' + escHtml(e[COL.dev]) + '</td><td>' + e[COL.cat] + '</td></tr>';
+  }
+  html += '</tbody></table></div>';
+
+  // 2. MV2 -> MV3 transition opportunities
+  html += '<div class="chart-container"><h3>🚀 Manifest V2 淘汰带来的机会</h3>' +
+    '<div style="font-size:13px;color:#cbd5e1;line-height:1.6;">' +
+    '<p style="margin-bottom:10px;">Google 正在逐步淘汰 Manifest V2，这意味着 <strong>' + allExts.length.toLocaleString() + '</strong> 款扩展面临失效风险。以下是几个关键机会：</p>' +
+    '<ul style="padding-left:20px;margin-bottom:10px;">' +
+    '<li><strong>uBlock Origin</strong> (3400万用户) - MV3 限制广告拦截器的能力，存在替代空间</li>' +
+    '<li><strong>大量未更新的扩展</strong> - ' + allExts.filter(e => e[COL.year] < 2023).length.toLocaleString() + ' 款扩展自 2022 年及之前未更新，大概率不会迁移到 MV3</li>' +
+    '<li><strong>企业级扩展</strong> - 许多企业安全扩展评分低但安装量大，用户体验差</li>' +
+    '</ul></div></div>';
+
+  // 3. Most popular categories by installs
+  const catInstalls = {};
+  for (const e of allExts) {
+    const c = e[COL.cat] || 'Other';
+    if (!catInstalls[c]) catInstalls[c] = { count: 0, installs: 0, sumRating: 0, rateCount: 0 };
+    catInstalls[c].count++;
+    catInstalls[c].installs += e[COL.installs];
+    if (e[COL.rating] > 0) { catInstalls[c].sumRating += e[COL.rating]; catInstalls[c].rateCount++; }
+  }
+
+  // Calculate avg rating per category and avg installs per extension
+  const catStats = Object.entries(catInstalls)
+    .map(([c, d]) => [c, d.installs, d.count, d.rateCount > 0 ? d.sumRating / d.rateCount : 0, d.installs / d.count])
+    .sort((a, b) => b[1] - a[1]);
+
+  html += '<div class="chart-container"><h3>💡 各类扩展平均安装量 (市场规模指标)</h3>' +
+    '<table style="width:100%;font-size:12px;"><thead><tr><th>分类</th><th>总安装量</th><th>扩展数</th><th>平均安装量</th><th>平均评分</th><th>市场评估</th></tr></thead><tbody>';
+
+  for (const [cat, totalInst, count, avgRate, avgInst] of catStats) {
+    const marketSize = avgInst >= 10000 ? '🟢 大市场' : avgInst >= 1000 ? '🟡 中市场' : '🔴 小众';
+    html += '<tr><td>' + escHtml(cat) + '</td><td>' + formatNum(totalInst) + '</td><td>' + count.toLocaleString() + '</td><td>' + formatNum(avgInst) + '</td><td>' + (avgRate ? avgRate.toFixed(2) : '-') + '</td><td>' + marketSize + '</td></tr>';
+  }
+  html += '</tbody></table></div>';
+
+  // 4. Chinese extensions and market
+  const cnExts = allExts.filter(e => e[COL.cn] === 1);
+  html += '<div class="chart-container"><h3>🇨🇳 中文扩展市场</h3>' +
+    '<div style="font-size:13px;color:#cbd5e1;line-height:1.6;">' +
+    '<p>共有 <strong>' + cnExts.length + '</strong> 款中文扩展，总安装量 ' + formatNum(cnExts.reduce((s, e) => s + e[COL.installs], 0)) + '</p>' +
+    '<p style="margin-top:8px;">按分类分布：</p>';
+
+  const cnCats = {};
+  for (const e of cnExts) {
+    const c = e[COL.cat];
+    cnCats[c] = (cnCats[c] || 0) + 1;
+  }
+  const sortedCn = Object.entries(cnCats).sort((a, b) => b[1] - a[1]);
+  for (const [c, n] of sortedCn) {
+    html += '<div class="chart-bar-row"><div class="chart-bar-label">' + escHtml(c) + '</div><div class="chart-bar-track"><div class="chart-bar-fill" style="width:' + (n/Math.max(...sortedCn.map(x=>x[1]))*100) + '%">' + n + '</div></div><div class="chart-bar-count">' + (n/cnExts.length*100).toFixed(1) + '%</div></div>';
+  }
+
+  html += '</div></div>';
+
+  // 5. Recommendations
+  html += '<div class="chart-container"><h3>🎯 开发建议</h3>' +
+    '<div style="font-size:13px;color:#cbd5e1;line-height:1.8;">' +
+    '<ol style="padding-left:20px;">' +
+    '<li><strong>广告拦截器替代品</strong> — uBlock Origin (3400万用户) 在 MV3 下受限，开发一款兼容 MV3 的高效广告拦截器有巨大市场</li>' +
+    '<li><strong>企业工具升级</strong> — 许多企业安全/认证扩展 (如 CryptoPro 900万安装、Trellix 800万) 评分极低，用户体验差，是很好的替代目标</li>' +
+    '<li><strong>中文扩展市场</strong> — 中文扩展中 "Privacy & Security" 和 "Productivity" 类别最多，但高质量的少</li>' +
+    '<li><strong>AI 助手类</strong> — 目前仅 51 款 AI 相关扩展，但增长最快，ChatGPT/Claude 相关扩展需求旺盛</li>' +
+    '<li><strong>隐私安全类</strong> — 安装量最高 (7500万+)，且随 MV2 淘汰，VPN/安全类扩展需要重新开发</li>' +
+    '<li><strong>下载工具类</strong> — 视频下载、媒体工具安装量大，但许多长期未更新，MV2 淘汰后有替代空间</li>' +
+    '</ol></div></div>';
+
+  el.innerHTML = html;
+}
+
+// Virtual scroll handler
+document.addEventListener('DOMContentLoaded', () => {
+  const wrap = document.getElementById('scrollWrap');
+  let ticking = false;
+  wrap.addEventListener('scroll', () => {
+    if (!ticking) {
+      window.requestAnimationFrame(() => {
+        renderTable();
+        ticking = false;
+      });
+      ticking = true;
+    }
+  });
+  loadData();
+});
+</script>
+</body>
+</html>

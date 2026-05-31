@@ -168,6 +168,29 @@ td { padding: 8px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle
   .chart-container { padding: 10px; }
   .chart-container h3 { font-size: 12px; }
 }
+
+/* Desktop: ignore collapsed class */
+@media (min-width: 769px) {
+  .sidebar.collapsed .filter-group,
+  .sidebar.collapsed .btn-group,
+  .sidebar.collapsed .search-box { display: block; }
+  .sidebar.collapsed .mobile-toggle { display: none; }
+}
+
+/* Mobile card & additional mobile optimizations */
+@media (max-width: 768px) {
+  .stats-bar { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 6px; }
+  .stat-card { flex: 0 0 auto; min-width: 90px; }
+  .stat-card .num { font-size: 14px; }
+  #vscroll-header { display: none; }
+  .tab { padding: 10px 12px; font-size: 13px; }
+  .btn { padding: 10px 14px; }
+  .content { padding: 6px 8px; }
+  .vscroll-wrap { border-radius: 0; border-left: none; border-right: none; }
+  .mobile-toggle { padding: 8px; }
+  .toolbar { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .vscroll-table th { width: auto !important; }
+}
 </style>
 </head>
 <body>
@@ -188,7 +211,7 @@ td { padding: 8px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle
 </div>
 
 <div class="main">
-  <div class="sidebar" id="sidebar">
+  <div class="sidebar collapsed" id="sidebar">
     <div class="mobile-toggle" onclick="document.getElementById('sidebar').classList.toggle('collapsed')"></div>
     <div class="search-box">
       <input type="text" id="searchInput" placeholder="搜索名称、描述、开发者..." oninput="applyFilters()">
@@ -567,6 +590,7 @@ const CAT_CN = {
 };
 
 function renderTable() {
+  if (window.innerWidth < 768) { renderMobileCards(); return; }
   const body = document.getElementById('vscroll-body');
   const wrap = document.getElementById('scrollWrap');
   const ROW_H = 48;
@@ -624,6 +648,51 @@ function renderTable() {
   }
   html += '</div>';
 
+  body.innerHTML = html;
+}
+
+function renderMobileCards() {
+  const body = document.getElementById('vscroll-body');
+  const wrap = document.getElementById('scrollWrap');
+  const CARD_H = 110;
+  const total = filteredExts.length;
+  const totalHeight = total * CARD_H;
+  const scrollTop = wrap.scrollTop;
+  const viewH = wrap.clientHeight;
+  const BUFFER = 20;
+  const start = Math.max(0, Math.floor(scrollTop / CARD_H) - BUFFER);
+  const end = Math.min(total, Math.ceil((scrollTop + viewH) / CARD_H) + BUFFER);
+  if (start === _lastStart && end === _lastEnd) return;
+  _lastStart = start;
+  _lastEnd = end;
+  let html = '<div style="height:' + totalHeight + 'px;position:relative;">';
+  for (let i = start; i < end; i++) {
+    const e = filteredExts[i];
+    const top = i * CARD_H;
+    const isBad = e[COL.installs] >= 100000 && e[COL.rating] > 0 && e[COL.rating] < 3.0;
+    const rClass = e[COL.rating] >= 4 ? 'rating-good' : e[COL.rating] >= 3 ? 'rating-ok' : e[COL.rating] > 0 ? 'rating-bad' : '';
+    const dtClass = e[COL.devType] === 2 ? 'dev-company' : e[COL.devType] === 1 ? 'dev-individual' : 'dev-unknown';
+    const dtLabel = e[COL.devType] === 2 ? '公司' : e[COL.devType] === 1 ? '个人' : '未知';
+    const catCn = CAT_CN[e[COL.cat]] || e[COL.cat];
+    const tagline = e[COL.tagline] || '';
+    const nameText = escHtml(e[COL.name]);
+    html += '<div style="position:absolute;top:'+top+'px;left:0;right:0;height:'+CARD_H+'px;padding:4px 8px;">' +
+      '<div style="background:#1e293b;border:1px solid '+(isBad?'#dc2626;':'#334155;')+'border-radius:10px;padding:10px 12px;height:100%;display:flex;flex-direction:column;justify-content:space-between;">' +
+      '<div>' +
+      '<div style="font-size:14px;font-weight:600;color:#f8fafc;line-height:1.3;">' + nameText + '</div>';
+    if (tagline) {
+      html += '<div style="font-size:11px;color:#94a3b8;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escHtml(tagline) + '</div>';
+    }
+    html += '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">' +
+      '<span class="rating ' + rClass + '" style="font-size:12px;"><span class="star">★</span> ' + (e[COL.rating] || '-') + '</span>' +
+      '<span style="font-size:12px;color:#f8fafc;font-weight:600;">' + formatNum(e[COL.installs]) + '</span>' +
+      '<span class="cat-badge" style="font-size:10px;">' + escHtml(catCn) + '</span>' +
+      '<span class="dev-type-badge ' + dtClass + '" style="font-size:10px;">' + dtLabel + '</span>' +
+      '<span style="font-size:10px;color:#64748b;">' + (e[COL.year] || '') + '</span>' +
+      '</div></div></div>';
+  }
+  html += '</div>';
   body.innerHTML = html;
 }
 
@@ -888,6 +957,12 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       ticking = true;
     }
+  });
+  // Re-render on resize for mobile/desktop switch
+  let resizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { _lastStart = -1; _lastEnd = -1; renderTable(); }, 200);
   });
   loadData();
 });

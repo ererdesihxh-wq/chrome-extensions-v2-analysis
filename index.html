@@ -419,27 +419,38 @@ async function loadData() {
     }
   } catch(e) {}
 
-  // Download full file (use simple fetch, NOT ReadableStream — more reliable on mobile)
+  // Download data (try .gz first for faster loading on mobile)
   try {
     progressText.textContent = '正在下载数据文件...';
-    loadSize.textContent = '0 秒';
+    loadSize.textContent = '连接中...';
     progressBar.classList.add('active');
 
     const startTime = Date.now();
     const timer = setInterval(() => {
-      const sec = ((Date.now() - startTime) / 1000).toFixed(0);
-      loadSize.textContent = sec + ' 秒 (约 20 MB)';
+      loadSize.textContent = ((Date.now()-startTime)/1000).toFixed(0) + ' 秒...';
     }, 1000);
 
-    const resp = await fetch('extensions_data.json');
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const text = await resp.text();
+    let text;
+    // Try gzip compressed version ~7MB instead of 20MB
+    const gzResp = await fetch('extensions_data.json.gz').catch(() => null);
+    if (gzResp && gzResp.ok && typeof DecompressionStream !== 'undefined') {
+      loadSize.textContent = '正在解压...';
+      const compressed = await gzResp.blob();
+      clearInterval(timer);
+      const ds = new DecompressionStream('gzip');
+      text = await new Response(compressed.stream().pipeThrough(ds)).text();
+    } else {
+      // Fallback to uncompressed JSON
+      const resp = await fetch('extensions_data.json');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      text = await resp.text();
+      clearInterval(timer);
+    }
 
-    clearInterval(timer);
     progressBar.classList.remove('active');
 
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    loadSize.textContent = (text.length / 1048576).toFixed(1) + ' MB (' + elapsed + ' 秒)';
+    const elapsed = ((Date.now()-startTime)/1000).toFixed(1);
+    loadSize.textContent = (text.length/1048576).toFixed(1) + ' MB (' + elapsed + ' 秒)';
 
     progressText.textContent = '正在解析数据...';
     progressBar.style.width = '40%';
@@ -476,23 +487,33 @@ async function loadData() {
 }
 
 async function loadTranslations() {
-  try {
-    const trResp = await fetch('translations_cache.json');
-    if (trResp.ok) window.tagTranslations = await trResp.json();
-  } catch(e) {}
-  try {
-    const nrResp = await fetch('translations_names.json');
-    if (nrResp.ok) window.nameTranslations = await nrResp.json();
-  } catch(e) {}
+  async function fetchJsonMaybeGz(url) {
+    const gz = await fetch(url+'.gz').catch(() => null);
+    if (gz && gz.ok && typeof DecompressionStream !== 'undefined') {
+      const compressed = await gz.blob();
+      return new Response(compressed.stream().pipeThrough(new DecompressionStream('gzip'))).json();
+    }
+    const resp = await fetch(url);
+    return resp.ok ? resp.json() : null;
+  }
+  try { const r = await fetchJsonMaybeGz('translations_cache.json'); if (r) window.tagTranslations = r; } catch(e) {}
+  try { const r = await fetchJsonMaybeGz('translations_names.json'); if (r) window.nameTranslations = r; } catch(e) {}
   if (!window.tagTranslations) window.tagTranslations = {};
   if (!window.nameTranslations) window.nameTranslations = {};
 }
 
 async function fetchFreshData() {
   try {
-    const resp = await fetch('extensions_data.json?_t=' + Date.now());
-    if (!resp.ok) return;
-    const data = await resp.json();
+    let data;
+    const gzResp = await fetch('extensions_data.json.gz?_t=' + Date.now()).catch(() => null);
+    if (gzResp && gzResp.ok && typeof DecompressionStream !== 'undefined') {
+      const compressed = await gzResp.blob();
+      data = JSON.parse(await new Response(compressed.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+    } else {
+      const resp = await fetch('extensions_data.json?_t=' + Date.now());
+      if (!resp.ok) return;
+      data = await resp.json();
+    }
     if (data.exts && data.exts.length > 0) {
       allExts = data.exts;
       dbSet('exts', allExts).catch(() => {});

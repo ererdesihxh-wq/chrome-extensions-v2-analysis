@@ -104,6 +104,12 @@ td { padding: 8px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle
 .progress-text { font-size: 14px; color: #94a3b8; }
 .progress-bar { width: 300px; height: 4px; background: #334155; border-radius: 2px; overflow: hidden; }
 .progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #2563eb, #60a5fa); transition: width 0.3s; }
+.progress-fill.active { background: linear-gradient(90deg, #2563eb, #60a5fa, #2563eb); background-size: 200% 100%; animation: shimmer 1.2s ease-in-out infinite; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.progress-size { font-size: 11px; color: #64748b; margin-top: 4px; }
+.spinner-wrapper { position: relative; width: 40px; height: 40px; }
+.spinner-wrapper .pulse { position: absolute; inset: -4px; border-radius: 50%; background: rgba(96,165,250,0.15); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { transform: scale(1); opacity: 0.5; } 50% { transform: scale(1.4); opacity: 0; } }
 
 /* Pagination / virtual scroll */
 .vscroll-wrap { height: calc(100vh - 340px); overflow-y: auto; border: 1px solid #334155; border-radius: 8px; overscroll-behavior: contain; }
@@ -296,9 +302,13 @@ td { padding: 8px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle
 
   <div class="content">
     <div id="loading">
-      <div class="spinner"></div>
+      <div class="spinner-wrapper">
+        <div class="pulse"></div>
+        <div class="spinner"></div>
+      </div>
       <div class="progress-text">正在加载数据...</div>
       <div class="progress-bar"><div class="progress-fill" id="loadProgress"></div></div>
+      <div class="progress-size" id="loadSize"></div>
     </div>
 
     <div id="mainContent" style="display:none;">
@@ -361,6 +371,32 @@ const ITEMS_PER_PAGE = 200;
 let currentPage = 0;
 let renderedItems = 0;
 
+// IndexedDB cache helpers
+const DB = 'ext_cache';
+function dbOpen() {
+  return new Promise((rs, rj) => {
+    const r = indexedDB.open(DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('s');
+    r.onsuccess = () => rs(r.result);
+    r.onerror = () => rj(r.error);
+  });
+}
+function dbGet(k) {
+  return dbOpen().then(d => new Promise((rs, rj) => {
+    const t = d.transaction('s','readonly'), r = t.objectStore('s').get(k);
+    r.onsuccess = () => { d.close(); rs(r.result); };
+    r.onerror = () => { d.close(); rj(r.error); };
+  }));
+}
+function dbSet(k, v) {
+  return dbOpen().then(d => new Promise((rs, rj) => {
+    const t = d.transaction('s','readwrite');
+    t.objectStore('s').put(v, k);
+    t.oncomplete = () => { d.close(); rs(); };
+    t.onerror = () => { d.close(); rj(t.error); };
+  }));
+}
+
 // Column indices
 const COL = { name:0, tagline:1, rating:2, installs:3, dev:4, devType:5, year:6, cat:7, cn:8, country:9, url:10, ver:11 };
 
@@ -368,9 +404,27 @@ const COL = { name:0, tagline:1, rating:2, installs:3, dev:4, devType:5, year:6,
 async function loadData() {
   const progressBar = document.getElementById('loadProgress');
   const progressText = document.querySelector('.progress-text');
+  const loadSize = document.getElementById('loadSize');
 
+  // Try IndexedDB cache first — near-instant on repeat visits
+  try {
+    const cached = await dbGet('exts');
+    if (cached && cached.length > 0) {
+      allExts = cached;
+      progressText.textContent = '☑ 从缓存加载完成';
+      progressBar.style.width = '60%';
+      finishLoad();
+      // Silently refresh in background
+      fetchFreshData();
+      return;
+    }
+  } catch(e) { /* cache unavailable, fall through to download */ }
+
+  // Full download with live progress
   try {
     progressText.textContent = '正在下载数据文件...';
+    loadSize.textContent = '首次加载约需 5-15 秒，请耐心等待';
+    progressBar.classList.add('active');
     const resp = await fetch('extensions_data.json');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const reader = resp.body.getReader();
@@ -383,59 +437,29 @@ async function loadData() {
       if (done) break;
       chunks.push(value);
       received += value.length;
-      progressBar.style.width = Math.min(30, (received / contentLength) * 30) + '%';
+      const pct = Math.min(30, (received / contentLength) * 30);
+      progressBar.style.width = pct + '%';
+      loadSize.textContent = (received / 1048576).toFixed(1) + ' MB / ' + (contentLength / 1048576).toFixed(1) + ' MB';
     }
 
+    progressBar.classList.remove('active');
     progressText.textContent = '正在解析数据...';
     progressBar.style.width = '40%';
 
     const allChunks = new Uint8Array(received);
     let pos = 0;
     for (const chunk of chunks) { allChunks.set(chunk, pos); pos += chunk.length; }
-
-    const decoder = new TextDecoder('utf-8');
-    const text = decoder.decode(allChunks);
-
+    const text = new TextDecoder('utf-8').decode(allChunks);
     progressBar.style.width = '60%';
 
     const data = JSON.parse(text);
     allExts = data.exts;
 
-    // Load translations
-    progressText.textContent = '正在加载翻译数据...';
-    try {
-      const trResp = await fetch('translations_cache.json');
-      if (trResp.ok) {
-        window.tagTranslations = await trResp.json();
-      }
-    } catch(e) { console.log('No tag translations'); }
-    try {
-      const nrResp = await fetch('translations_names.json');
-      if (nrResp.ok) {
-        window.nameTranslations = await nrResp.json();
-      }
-    } catch(e) { console.log('No name translations'); }
-    if (!window.tagTranslations) window.tagTranslations = {};
-    if (!window.nameTranslations) window.nameTranslations = {};
+    // Cache for next time
+    dbSet('exts', allExts).catch(() => {});
 
-    progressBar.style.width = '80%';
-    progressText.textContent = '正在处理统计...';
-
-    // Restore stats
-    document.getElementById('totalCount').textContent = data.total;
-    document.getElementById('statTotal').textContent = data.total.toLocaleString();
-
-    // Precompute stats
-    computeStats();
-
-    // Populate filter options
-    populateFilters();
-
-    // Apply filters and render
-    applyFilters();
-
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('mainContent').style.display = 'block';
+    await loadTranslations();
+    finishLoad();
   } catch (e) {
     document.getElementById('loading').innerHTML = `
       <div style="color:#f87171;font-size:40px;margin-bottom:16px;">⚠️</div>
@@ -455,6 +479,51 @@ async function loadData() {
       </div>`;
     console.error(e);
   }
+}
+
+async function loadTranslations() {
+  try {
+    const trResp = await fetch('translations_cache.json');
+    if (trResp.ok) window.tagTranslations = await trResp.json();
+  } catch(e) {}
+  try {
+    const nrResp = await fetch('translations_names.json');
+    if (nrResp.ok) window.nameTranslations = await nrResp.json();
+  } catch(e) {}
+  if (!window.tagTranslations) window.tagTranslations = {};
+  if (!window.nameTranslations) window.nameTranslations = {};
+}
+
+async function fetchFreshData() {
+  try {
+    const resp = await fetch('extensions_data.json?_t=' + Date.now());
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.exts && data.exts.length > 0) {
+      allExts = data.exts;
+      dbSet('exts', allExts).catch(() => {});
+      await loadTranslations();
+      computeStats();
+      populateFilters();
+      applyFilters();
+    }
+  } catch(e) { /* background refresh failed */ }
+}
+
+function finishLoad() {
+  const progressBar = document.getElementById('loadProgress');
+  const progressText = document.querySelector('.progress-text');
+  const loadSize = document.getElementById('loadSize');
+  progressBar.style.width = '80%';
+  progressText.textContent = '正在处理统计...';
+  document.getElementById('totalCount').textContent = allExts.length.toLocaleString();
+  document.getElementById('statTotal').textContent = allExts.length.toLocaleString();
+  computeStats();
+  populateFilters();
+  applyFilters();
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('mainContent').style.display = 'block';
+  if (loadSize) loadSize.textContent = '';
 }
 
 function computeStats() {

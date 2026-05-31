@@ -139,6 +139,7 @@ td { padding: 8px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle
 <div class="header">
   <h1>Chrome Extensions Manifest V2 分析面板</h1>
   <p class="subtitle">共 <span id="totalCount">0</span> 款扩展 · 数据来源: Chrome Web Store · 最后更新: 分析日</p>
+  <p style="font-size:12px;color:#64748b;margin-top:4px;">扩展数据来自 Chrome Web Store，名称为原始语言。可使用浏览器翻译功能阅读。 / Extension names are in their original language.</p>
 </div>
 
 <div class="stats-bar" id="statsBar">
@@ -251,8 +252,7 @@ td { padding: 8px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle
         <div class="toolbar">
           <div class="info">显示 <strong id="filteredCount">0</strong> / <span id="totalDisplay">0</span> 个扩展 / Extensions</div>
           <div class="toolbar-right">
-            <button class="btn btn-secondary" onclick="window.open('https://translate.google.com/translate?sl=en&tl=zh-CN&u='+encodeURIComponent(location.href),'_blank')" style="font-size:11px;padding:4px 10px;">🌐 翻译页面 / Translate</button>
-            <select id="sortSelect" onchange="applyFilters()" style="padding:6px 10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px;">
+<select id="sortSelect" onchange="applyFilters()" style="padding:6px 10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:12px;">
               <option value="3-desc">安装量 ↓ / Installs</option>
               <option value="3-asc">安装量 ↑ / Installs</option>
               <option value="2-desc">评分 ↓ / Rating</option>
@@ -544,13 +544,9 @@ function renderTable() {
     const nameText = escHtml(e[COL.name]);
     const taglineText = e[COL.tagline] ? '<span style="display:block;font-weight:400;font-size:11px;color:#64748b;margin-top:2px;">' + escHtml(e[COL.tagline]) + '</span>' : '';
     const cnTag = e[COL.cn] === 1 ? ' <span class="cn-badge">中文</span>' : '';
-    // Translate link for non-Chinese extensions
-    const translateLink = !e[COL.cn] && e[COL.name]
-      ? ' <a href="https://translate.google.com/?sl=en&tl=zh-CN&text=' + encodeURIComponent(e[COL.name]) + '" target="_blank" style="color:#60a5fa;font-size:10px;text-decoration:none;opacity:0.6;" title="Google 翻译">译</a>'
-      : '';
     const nameHtml = e[COL.url]
-      ? '<a class="ext-name" href="' + e[COL.url] + '" target="_blank">' + nameText + taglineText + '</a>' + cnTag + translateLink
-      : '<span class="ext-name">' + nameText + taglineText + '</span>' + cnTag + translateLink;
+      ? '<a class="ext-name" href="' + e[COL.url] + '" target="_blank">' + nameText + taglineText + '</a>' + cnTag
+      : '<span class="ext-name">' + nameText + taglineText + '</span>' + cnTag;
 
     html += '<div class="vrow" style="position:absolute;top:' + top + 'px;left:0;right:0;height:' + ROW_H + 'px;display:flex;align-items:center;border-bottom:1px solid #1e293b;font-size:13px;' + bgStyle + '">' +
       '<div style="flex:3;padding:4px 12px;overflow:hidden;">' + nameHtml + '</div>' +
